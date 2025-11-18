@@ -1,0 +1,15 @@
+{
+  "driver_path": "",
+  "headless": false,
+  "wait_time": 3,
+  "timeout": 10,
+  "use_debug_mode": true,
+  "debug_port": 9222,
+  "profile_path": null,
+  "notes": {
+    "use_debug_mode": "true: Chrome 디버깅 모드 사용 (VBA 원본 방식, 권장) / false: 일반 Selenium 모드",
+    "debug_port": "Chrome 디버깅 포트 번호 (기본 9222)",
+    "profile_path": "Chrome 프로필 경로 (null이면 ~/ChromeTEMP 사용, Windows: C:\\Users\\사용자명\\ChromeTEMP)"
+  }
+}
+
