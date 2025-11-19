@@ -74,64 +74,77 @@ def test_crawler(url_list: dict = {}, config=None):
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # 드라이버 생성 (config 설정 적용)
-    chrome = ChromeDriver(
-        headless=config.get("headless", False),
-        use_debug_mode=config.get("use_debug_mode", True),
-        debug_port=config.get("debug_port", 9222),
-        profile_path=config.get("profile_path")  # None이면 자동으로 ~/ChromeTEMP
-    )
-
-    driver = chrome.create_driver()
+    # 🆕 모든 키워드에 대해 반복 처리
+    if not url_list:
+        print("⚠️  처리할 URL이 없습니다.")
+        return
     
-    # ChromeDriver 객체에 driver 속성 추가 (OptimizedNaverCrawler에서 사용)
-    chrome.driver = driver
+    keywords = list(url_list.keys())
+    total_keywords = len(keywords)
     
-    # OptimizedNaverCrawler 생성 (naver_shopping.py)
-    crawler = OptimizedNaverCrawler(chrome_controller=chrome)
+    for idx, keyword in enumerate(keywords, 1):
+        print(f"\n{'='*60}")
+        print(f"🔄 키워드 {idx}/{total_keywords}: '{keyword}'")
+        print(f"{'='*60}")
+        
+        url = url_list[keyword]
+        
+        # 각 키워드마다 새로운 드라이버 생성
+        chrome = ChromeDriver(
+            headless=config.get("headless", False),
+            use_debug_mode=config.get("use_debug_mode", True),
+            debug_port=config.get("debug_port", 9222),
+            profile_path=config.get("profile_path")  # None이면 자동으로 ~/ChromeTEMP
+        )
 
-    try:
-        print("\n1️⃣ 네이버 로그인 (선택사항)")
-        print("  - 로그인이 필요한 경우 브라우저에서 수동으로 로그인해주세요.")
-        input("  - 로그인을 건너뛰려면 엔터를 누르세요...")
+        driver = chrome.create_driver()
+        
+        # ChromeDriver 객체에 driver 속성 추가 (OptimizedNaverCrawler에서 사용)
+        chrome.driver = driver
+        
+        # OptimizedNaverCrawler 생성 (naver_shopping.py)
+        crawler = OptimizedNaverCrawler(chrome_controller=chrome)
 
-        if url_list:
-            keywords = list(url_list.keys())
-            first_keyword = keywords[0]
-            first_url = url_list[first_keyword]
+        try:
+            # 첫 번째 키워드일 때만 로그인 안내
+            if idx == 1:
+                print("\n1️⃣ 네이버 로그인 (선택사항)")
+                print("  - 로그인이 필요한 경우 브라우저에서 수동으로 로그인해주세요.")
+                input("  - 로그인을 건너뛰려면 엔터를 누르세요...")
             
-            print(f"\n2️⃣ 검색 테스트: '{first_keyword}'")
+            print(f"\n2️⃣ 검색 테스트: '{keyword}'")
             
             # naver_shopping.py의 _natural_search 사용
             # 자동으로 네이버 메인 → 통합검색 → 쇼핑 탭 클릭
-            crawler._natural_search(keyword=first_keyword, domestic=True)
+            crawler._natural_search(keyword=keyword, domestic=True)
             
-            # 🆕 URL에서 UID 추출
+            # 상품 목록 로딩
             crawler._fast_lazy_load()
 
-            target_uid = crawler.extract_uid_from_url(first_url)
+            # URL에서 UID 추출
+            target_uid = crawler.extract_uid_from_url(url)
             
             if target_uid:
                 print(f"\n3️⃣ 목표 상품 찾기")
-                print(f"  - URL: {first_url}")
+                print(f"  - URL: {url}")
                 print(f"  - UID (nv_mid): {target_uid}")
                 
-                # 🆕 nv_mid로 상품 찾아서 클릭
+                # nv_mid로 상품 찾아서 클릭
                 success = crawler.find_and_click_product_by_uid(target_uid)
                 
                 if success:
                     print(f"\n✅ 상품 페이지로 이동 성공!")
                     print(f"  🔗 현재 URL: {driver.current_url}")
+                    
+                    # 잠시 대기 (사용자가 결과 확인 가능)
+                    time.sleep(2)
                 else:
                     print(f"\n⚠️  상품을 찾지 못했습니다.")
             else:
-                print(f"\n⚠️  URL에서 UID를 추출할 수 없습니다: {first_url}")
+                print(f"\n⚠️  URL에서 UID를 추출할 수 없습니다: {url}")
                 
                 # UID 추출 실패 시 기존 방식으로 진행
-                print("\n3️⃣ 상품 목록 로딩 중...")
-                crawler._fast_lazy_load()
-                
-                print("\n4️⃣ 가격비교 상품 데이터 추출")
+                print("\n3️⃣ 가격비교 상품 데이터 추출")
                 data = crawler._extract_store_data(page=1)
                 
                 if data:
@@ -147,19 +160,28 @@ def test_crawler(url_list: dict = {}, config=None):
                         print(f"  찜수: {item.get('찜수', 'N/A')}")
                 else:
                     print("\n⚠️  데이터 추출 실패")
-
-        print("\n✅ 테스트 완료!")
-        input("엔터를 누르면 종료합니다...")
-
-    except Exception as e:
-        print(f"\n❌ 오류 발생: {e}")
-        import traceback
-        traceback.print_exc()
-        
-    finally:
-        print("\n드라이버 종료 중...")
-        chrome.quit_driver(driver, kill_chrome=False)
-        print("✅ 종료 완료!")
+            
+            print(f"\n✅ 키워드 '{keyword}' 처리 완료!")
+            
+        except Exception as e:
+            print(f"\n❌ 키워드 '{keyword}' 처리 중 오류 발생: {e}")
+            import traceback
+            traceback.print_exc()
+            
+        finally:
+            print(f"\n드라이버 종료 중... ({idx}/{total_keywords})")
+            chrome.quit_driver(driver, kill_chrome=False)
+            print("✅ 드라이버 종료 완료!")
+            
+            # 다음 키워드가 있으면 잠시 대기
+            if idx < total_keywords:
+                print("\n⏳ 다음 키워드 준비 중...")
+                time.sleep(2)
+    
+    print(f"\n{'='*60}")
+    print(f"🎉 모든 키워드 처리 완료! (총 {total_keywords}개)")
+    print(f"{'='*60}")
+    input("\n엔터를 누르면 종료합니다...")
 
 
 
@@ -168,10 +190,9 @@ if __name__ == "__main__":
     config = load_config()
     
     url_list = {
-        # "다이어리": "https://search.shopping.naver.com/catalog/57407585768",
-        "다이어리": "https://search.shopping.naver.com/catalog/57407512312385768",
-        "바디스크럽": "https://smartstore.naver.com/snowqueen/products/12379736901",
-        "한우선물세트": "https://smartstore.naver.com/nabigolmart/products/9128050628",
+        "다이어리": "https://search.shopping.naver.com/catalog/57407585768",
+        "바디스크럽": "https://smartstore.naver.com/braziliansecret/products/636183671",
+        "한우선물세트": "https://brand.naver.com/gorgeouscowofficial/products/9687826363",
     }
     
     # 크롤러 테스트 실행
