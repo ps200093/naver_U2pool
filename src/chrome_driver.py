@@ -248,14 +248,27 @@ class ChromeDriver:
             logger.info(f"Chrome 프로세스 종료 중: PID={self.chrome_pid}")
             
             if platform.system() == "Windows":
+                # 특정 PID 종료
                 subprocess.run(["taskkill", "/F", "/PID", str(self.chrome_pid)], 
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # 디버깅 포트를 사용하는 모든 Chrome 프로세스 종료 (안전장치)
+                time.sleep(0.5)
+                subprocess.run(
+                    ["powershell", "-Command", 
+                     f"Get-Process chrome -ErrorAction SilentlyContinue | Where-Object {{$_.CommandLine -like '*{self.debug_port}*'}} | Stop-Process -Force"],
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL
+                )
             else:
                 subprocess.run(["kill", "-9", str(self.chrome_pid)],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             self.chrome_pid = None
             logger.info("Chrome 프로세스 종료 완료")
+            
+            # 프로세스가 완전히 종료될 시간 확보
+            time.sleep(3)
             
         except Exception as e:
             logger.error(f"Chrome 프로세스 종료 실패: {e}")

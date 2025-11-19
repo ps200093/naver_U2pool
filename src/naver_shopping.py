@@ -544,8 +544,8 @@ class OptimizedNaverCrawler:
         print("=" * 70)
         
         # 🆕 페이지 로딩 완료 대기 (확장 프로그램: search-content.js 323줄)
-        print(f"  ⏳ 페이지 초기 로딩 대기 (2초)...")
-        time.sleep(2)
+        print(f"  ⏳ 페이지 초기 로딩 대기 (3초)...")
+        time.sleep(3)  # 2초 → 3초로 증가
         
         # 🆕 Next.js 데이터 로딩 확인 (최대 10초)
         print(f"  🔍 Next.js 데이터 로딩 확인 중...")
@@ -607,22 +607,54 @@ class OptimizedNaverCrawler:
             print(f"  ℹ️  계속 진행... (상품 목록이 있으면 정상 동작)")
         
         target_count = 40  # 한 페이지 목표 개수
+        no_change_count = 0  # 변화 없는 횟수 카운터
+        prev_item_count = 0  # 이전 아이템 수
         
         for attempt in range(max_attempts):
+            # 🔧 요소를 찾기 전에 잠시 대기 (DOM 업데이트 시간 확보)
+            time.sleep(0.3)
+            
             # 현재 아이템 수 확인
             items = self.driver.find_elements(
                 By.CSS_SELECTOR, 
                 ".product_item__KQayS, .adProduct_item__T7utB"
             )
+            current_item_count = len(items)
             
-            print(f"  DEBUG: Lazy load 시도 {attempt + 1}/{max_attempts} - 아이템 수: {len(items)}/{target_count}")
+            print(f"  DEBUG: Lazy load 시도 {attempt + 1}/{max_attempts} - 아이템 수: {current_item_count}/{target_count}")
             
-            if len(items) >= target_count:
+            # 🔧 추가 디버깅: CSS 선택자별로 확인
+            if attempt == 0 and current_item_count == 0:
+                product_items = self.driver.find_elements(By.CSS_SELECTOR, ".product_item__KQayS")
+                ad_items = self.driver.find_elements(By.CSS_SELECTOR, ".adProduct_item__T7utB")
+                print(f"  DEBUG: 일반 상품: {len(product_items)}개, 광고 상품: {len(ad_items)}개")
+                
+                # 대체 선택자 시도
+                alt_items = self.driver.find_elements(By.CSS_SELECTOR, "[class*='product_item'], [class*='adProduct_item']")
+                print(f"  DEBUG: 대체 선택자로 찾은 상품: {len(alt_items)}개")
+            
+            # 목표 달성 확인
+            if current_item_count >= target_count:
                 print(f"  ✅ 목표 아이템 수 달성!")
                 break
             
+            # 🔧 변화 없음 감지 (3번 연속 변화가 없으면 종료)
+            if current_item_count == prev_item_count:
+                no_change_count += 1
+                print(f"  ⚠️  상품 수 변화 없음 ({no_change_count}/3)")
+                
+                if no_change_count >= 3:
+                    print(f"  ⚠️  3번 연속 변화 없음 - 더 이상 로드할 상품이 없는 것으로 판단")
+                    print(f"  ℹ️  현재 {current_item_count}개 상품으로 진행합니다.")
+                    break
+            else:
+                no_change_count = 0  # 변화가 있으면 카운터 리셋
+            
+            prev_item_count = current_item_count
+            
             # 🆕 자연스러운 스크롤 (smooth behavior - 확장 프로그램 방식)
             scroll_before = self.driver.execute_script('return window.pageYOffset')
+            page_height = self.driver.execute_script('return document.body.scrollHeight')
             
             # smooth 스크롤 사용
             self.driver.execute_script("""
@@ -632,11 +664,26 @@ class OptimizedNaverCrawler:
                 });
             """)
             
-            scroll_after = self.driver.execute_script('return window.pageYOffset')
-            print(f"  DEBUG: 스크롤 {scroll_before} → {scroll_after}")
+            # 🔧 스크롤이 실제로 적용될 시간 확보 (smooth 스크롤은 애니메이션)
+            time.sleep(0.5)
             
-            # 🆕 랜덤 대기 시간 (800ms ~ 1500ms - 확장 프로그램 방식)
-            random_delay = 0.8 + random.random() * 0.7
+            scroll_after = self.driver.execute_script('return window.pageYOffset')
+            print(f"  DEBUG: 스크롤 {scroll_before} → {scroll_after} (페이지 높이: {page_height})")
+            
+            # 🔧 스크롤이 더 이상 진행되지 않는 경우 (페이지 끝)
+            if scroll_before == scroll_after:
+                print(f"  ⚠️  스크롤이 더 이상 진행되지 않음 (페이지 끝)")
+                # 마지막으로 한 번 더 대기 후 요소 확인
+                time.sleep(1.5)
+                final_items = self.driver.find_elements(
+                    By.CSS_SELECTOR, 
+                    ".product_item__KQayS, .adProduct_item__T7utB"
+                )
+                print(f"  ℹ️  최종 {len(final_items)}개 상품으로 진행합니다.")
+                break
+            
+            # 🆕 랜덤 대기 시간 (1초 ~ 1.8초 - 더 여유 있게)
+            random_delay = 1.0 + random.random() * 0.8
             time.sleep(random_delay)
             
             # 5번마다 조금 더 대기 (읽는 척)
@@ -645,10 +692,15 @@ class OptimizedNaverCrawler:
     
     def find_and_click_product_by_uid(self, target_uid, max_pages=5, max_scroll_attempts=20):
         """
-        nv_mid(상품 UID)를 기준으로 상품을 찾아서 클릭 (최대 5페이지까지 검색)
+        상품 UID를 기준으로 상품을 찾아서 클릭 (최대 5페이지까지 검색)
+        
+        다양한 ID 타입을 지원합니다:
+        - nv_mid: 카탈로그 상품 ID
+        - catalog_nv_mid: 카탈로그 상품 ID (대체)
+        - chnl_prod_no: 스마트스토어 채널 상품 번호
         
         Args:
-            target_uid: 찾을 상품의 UID (nv_mid)
+            target_uid: 찾을 상품의 UID (nv_mid 또는 chnl_prod_no)
             max_pages: 최대 검색할 페이지 수 (기본값: 5)
             max_scroll_attempts: 페이지당 최대 스크롤 시도 횟수
         
@@ -656,7 +708,8 @@ class OptimizedNaverCrawler:
             bool: 성공 여부
         """
         print(f"\n{'='*70}")
-        print(f"🎯 상품 찾기: nv_mid={target_uid} (최대 {max_pages}페이지)")
+        print(f"🎯 상품 찾기: target_uid={target_uid} (최대 {max_pages}페이지)")
+        print(f"   (nv_mid, catalog_nv_mid, chnl_prod_no 모두 확인)")
         print(f"{'='*70}")
         
         # 여러 페이지 검색
@@ -687,7 +740,7 @@ class OptimizedNaverCrawler:
                 if len(store_elements) < 40:
                     print(f"  ⚠️  예상보다 적은 상품! 마지막 페이지이거나 로딩 문제일 수 있습니다.")
                 
-                # 각 상품의 nv_mid 확인
+                # 각 상품의 ID 확인
                 for idx, store in enumerate(store_elements):
                     try:
                         # 상품명 링크 찾기
@@ -696,52 +749,65 @@ class OptimizedNaverCrawler:
                             ".product_link__aFnaq, .adProduct_link__hNwpz"
                         )
                         
-                        # data-shp-contents-dtl에서 nv_mid 추출
+                        # data-shp-contents-dtl에서 여러 ID 추출
                         contents_dtl = product_link.get_attribute('data-shp-contents-dtl')
                         
                         if contents_dtl:
                             try:
                                 dtl_array = json.loads(contents_dtl)
                                 
-                                # nv_mid 또는 catalog_nv_mid 찾기
-                                nv_mid_obj = next(
-                                    (obj for obj in dtl_array if obj.get('key') in ['nv_mid', 'catalog_nv_mid']), 
-                                    None
-                                )
+                                # 🆕 여러 ID 타입 추출
+                                id_fields = {
+                                    'nv_mid': None,
+                                    'catalog_nv_mid': None,
+                                    'chnl_prod_no': None
+                                }
                                 
-                                if nv_mid_obj and nv_mid_obj.get('value'):
-                                    nv_mid = str(nv_mid_obj['value'])
+                                for obj in dtl_array:
+                                    key = obj.get('key')
+                                    if key in id_fields and obj.get('value'):
+                                        id_fields[key] = str(obj['value'])
+                                
+                                # 디버깅: 모든 상품의 ID 정보 출력
+                                id_info = ", ".join([f"{k}={v}" for k, v in id_fields.items() if v])
+                                print(f"    [{idx+1}] {id_info}")
+                                
+                                # 🆕 target_uid와 모든 ID 비교
+                                matched = False
+                                matched_field = None
+                                
+                                for field_name, field_value in id_fields.items():
+                                    if field_value and field_value == str(target_uid):
+                                        matched = True
+                                        matched_field = field_name
+                                        break
+                                
+                                if matched:
+                                    print(f"\n  ✅ 일치하는 상품 발견! ({matched_field}={target_uid})")
+                                    print(f"     페이지: {page}, 인덱스: {idx+1}")
                                     
-                                    # 디버깅: 처음 3개 상품의 nv_mid 출력 (1페이지만)
-                                    if page == 1 and idx < 3:
-                                        print(f"    [{idx+1}] nv_mid={nv_mid}")
+                                    # 상품 정보 출력
+                                    try:
+                                        product_name = product_link.text.strip()
+                                        print(f"  📦 상품명: {product_name[:50]}...")
+                                    except:
+                                        pass
                                     
-                                    # target_uid와 비교
-                                    if nv_mid == str(target_uid):
-                                        print(f"\n  ✅ 일치하는 상품 발견! (페이지: {page}, 인덱스: {idx+1})")
-                                        
-                                        # 상품 정보 출력
-                                        try:
-                                            product_name = product_link.text.strip()
-                                            print(f"  📦 상품명: {product_name[:50]}...")
-                                        except:
-                                            pass
-                                        
-                                        # 상품으로 스크롤
-                                        self.driver.execute_script(
-                                            "arguments[0].scrollIntoView({block: 'center'});", 
-                                            store
-                                        )
-                                        time.sleep(0.5)
-                                        
-                                        # 클릭
-                                        print(f"  🖱️  상품 클릭...")
-                                        product_link.click()
-                                        time.sleep(2)
-                                        
-                                        print(f"  ✅ 상품 페이지로 이동 완료!")
-                                        print(f"  🔗 현재 URL: {self.driver.current_url}")
-                                        return True
+                                    # 상품으로 스크롤
+                                    self.driver.execute_script(
+                                        "arguments[0].scrollIntoView({block: 'center'});", 
+                                        store
+                                    )
+                                    time.sleep(0.5)
+                                    
+                                    # 클릭
+                                    print(f"  🖱️  상품 클릭...")
+                                    product_link.click()
+                                    time.sleep(2)
+                                    
+                                    print(f"  ✅ 상품 페이지로 이동 완료!")
+                                    print(f"  🔗 현재 URL: {self.driver.current_url}")
+                                    return True
                             
                             except json.JSONDecodeError:
                                 continue
@@ -755,7 +821,7 @@ class OptimizedNaverCrawler:
                 print(f"  ⚠️  {page}페이지 검색 중 오류: {e}")
                 continue
         
-        print(f"\n  ❌ {max_pages}페이지까지 검색했지만 nv_mid={target_uid}인 상품을 찾지 못했습니다.")
+        print(f"\n  ❌ {max_pages}페이지까지 검색했지만 target_uid={target_uid}인 상품을 찾지 못했습니다.")
         return False
     
     def _extract_store_data(self, page=1):

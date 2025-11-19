@@ -170,13 +170,14 @@ def test_crawler(url_list: dict = {}, config=None):
             
         finally:
             print(f"\n드라이버 종료 중... ({idx}/{total_keywords})")
-            chrome.quit_driver(driver, kill_chrome=False)
+            # Chrome 프로세스까지 완전히 종료 (다음 키워드 처리를 위해)
+            chrome.quit_driver(driver, kill_chrome=True)
             print("✅ 드라이버 종료 완료!")
             
-            # 다음 키워드가 있으면 잠시 대기
+            # 다음 키워드가 있으면 잠시 대기 (Chrome 프로세스 정리 시간)
             if idx < total_keywords:
                 print("\n⏳ 다음 키워드 준비 중...")
-                time.sleep(2)
+                time.sleep(3)  # Chrome 프로세스가 완전히 종료될 시간 확보
     
     print(f"\n{'='*60}")
     print(f"🎉 모든 키워드 처리 완료! (총 {total_keywords}개)")
@@ -190,9 +191,10 @@ if __name__ == "__main__":
     config = load_config()
     
     url_list = {
+        # "한우선물세트": "https://brand.naver.com/gorgeouscowofficial/products/9687826363",
+        "한우선물세트": "https://smartstore.naver.com/the_homme/products/11629672050",
         "다이어리": "https://search.shopping.naver.com/catalog/57407585768",
         "바디스크럽": "https://smartstore.naver.com/braziliansecret/products/636183671",
-        "한우선물세트": "https://brand.naver.com/gorgeouscowofficial/products/9687826363",
     }
     
     # 크롤러 테스트 실행
