@@ -92,12 +92,12 @@ def load_config(config_path="config/config.json"):
         }
 
 
-def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_minutes: float = 3.0):
+def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_minutes: float = 10.0):
     """
     Crawler test (using naver_shopping.py)
     
     Args:
-        url_list: URL dictionary to test (keyword: URL)
+        url_list: URL dictionary to test (URL: [keyword1, keyword2, ...])
         config: Configuration dictionary (auto-load if None)
         repeat_count: Number of times to repeat the entire crawling process (default: 1)
         rest_minutes: Rest time in minutes between each repeat cycle (default: 3.0)
@@ -106,9 +106,26 @@ def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_m
     if config is None:
         config = load_config()
     
+    # Build round-robin task list: [(url, keyword), ...]
+    # Order: 1st URL's 1st keyword -> 2nd URL's 1st keyword -> ... -> 1st URL's 2nd keyword -> ...
+    urls = list(url_list.keys())
+    num_urls = len(urls)
+    keywords_per_url = 5  # Fixed 5 keywords per URL
+    
+    task_list = []
+    for keyword_idx in range(keywords_per_url):
+        for url in urls:
+            keywords = url_list[url]
+            if keyword_idx < len(keywords):
+                task_list.append((url, keywords[keyword_idx]))
+    
+    total_tasks = len(task_list)
+    
     print(f"\n{'='*60}")
     print(f"[SEARCH] Crawler test started")
-    print(f"[SEARCH] Number of keywords: {len(url_list)}")
+    print(f"[SEARCH] Number of URLs: {num_urls}")
+    print(f"[SEARCH] Keywords per URL: {keywords_per_url}")
+    print(f"[SEARCH] Total tasks: {total_tasks}")
     print(f"[SEARCH] Repeat count: {repeat_count} times")
     print(f"[SEARCH] Rest time between cycles: {rest_minutes} minutes")
     print(f"{'='*60}")
@@ -136,13 +153,10 @@ def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_m
     # Statistics
     stats = {"success": 0, "fail": 0, "error": 0}
     
-    # Process all keywords
+    # Process all tasks
     if not url_list:
         print("[WARNING] No URLs to process.")
         return
-    
-    keywords = list(url_list.keys())
-    total_keywords = len(keywords)
     
     # Repeat loop
     for cycle in range(1, repeat_count + 1):
@@ -150,12 +164,10 @@ def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_m
         print(f"[CYCLE] Starting cycle {cycle}/{repeat_count}")
         print(f"{'#'*60}")
         
-        for idx, keyword in enumerate(keywords, 1):
+        for idx, (url, keyword) in enumerate(task_list, 1):
             print(f"\n{'='*60}")
-            print(f"[LOOP] Cycle {cycle}/{repeat_count} - Keyword {idx}/{total_keywords}: '{keyword}'")
+            print(f"[LOOP] Cycle {cycle}/{repeat_count} - Task {idx}/{total_tasks}: '{keyword}'")
             print(f"{'='*60}")
-            
-            url = url_list[keyword]
             
             # Create new driver for each keyword
             chrome = ChromeDriver(
@@ -253,18 +265,18 @@ def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_m
                 stats["error"] += 1
                 
             finally:
-                print(f"\nShutting down driver... ({idx}/{total_keywords})")
+                print(f"\nShutting down driver... ({idx}/{total_tasks})")
                 # Completely terminate Chrome process (for next keyword processing)
                 chrome.quit_driver(driver, kill_chrome=True)
                 print("[OK] Driver shutdown complete!")
                 
                 # Wait briefly if there are more keywords (allow Chrome process to fully terminate)
-                if idx < total_keywords:
+                if idx < total_tasks:
                     print("\n[WAIT] Preparing for next keyword...")
-                    time.sleep(3)  # Allow time for Chrome process to fully terminate
+                    time.sleep(10)  # Allow time for Chrome process to fully terminate
         
         print(f"\n{'='*60}")
-        print(f"[CYCLE DONE] Cycle {cycle}/{repeat_count} complete! (Keywords: {total_keywords})")
+        print(f"[CYCLE DONE] Cycle {cycle}/{repeat_count} complete! (Tasks: {total_tasks})")
         print(f"{'='*60}")
         
         # Clear memory after each cycle
@@ -289,8 +301,8 @@ def test_crawler(url_list: dict = {}, config=None, repeat_count: int = 1, rest_m
             print("[REST] Rest complete! Starting next cycle...")
     
     print(f"\n{'#'*60}")
-    print(f"[DONE] All cycles complete! (Cycles: {repeat_count}, Keywords per cycle: {total_keywords})")
-    print(f"[DONE] Total keywords processed: {repeat_count * total_keywords}")
+    print(f"[DONE] All cycles complete! (Cycles: {repeat_count}, Tasks per cycle: {total_tasks})")
+    print(f"[DONE] Total tasks processed: {repeat_count * total_tasks}")
     print(f"{'#'*60}")
     
     # Print statistics
@@ -331,8 +343,8 @@ Examples:
     parser.add_argument(
         '-t', '--rest',
         type=float,
-        default=3.0,
-        help='Rest time in minutes between each cycle (default: 3.0)'
+        default=10.0,
+        help='Rest time in minutes between each cycle (default: 10.0)'
     )
     return parser.parse_args()
 
@@ -345,35 +357,41 @@ if __name__ == "__main__":
     config = load_config()
     
     url_list = {
-        "젠하이저 ANC": "https://brand.naver.com/sennheiserstore/products/12534300529",
-        "젠하이저 패키지": "https://brand.naver.com/sennheiserstore/products/12534300529",
-        "HDB630 헤드폰": "https://brand.naver.com/sennheiserstore/products/12534300529",
-        "BTD700 패키지": "https://brand.naver.com/sennheiserstore/products/12534300529",
-        "BTD700 헤드폰": "https://brand.naver.com/sennheiserstore/products/12534300529",
-
-        "드립백커피 특가": "https://smartstore.naver.com/ottempt_4291/products/4665304597",
-        "드립백커피 한달": "https://smartstore.naver.com/ottempt_4291/products/4665304597",
-        "드립백커피 하루": "https://smartstore.naver.com/ottempt_4291/products/4665304597",
-        "드립백커피 한잔": "https://smartstore.naver.com/ottempt_4291/products/4665304597",
-        "드립백커피 우편": "https://smartstore.naver.com/ottempt_4291/products/4665304597",
-
-        "가스버너 테이블": "https://smartstore.naver.com/kssinesp/products/6434002841",
-        "고기 불판 테이블": "https://smartstore.naver.com/kssinesp/products/6434002841",
-        "접이식 밥상 고기": "https://smartstore.naver.com/kssinesp/products/6434002841",
-        "접이식 불판 밥상": "https://smartstore.naver.com/kssinesp/products/6434002841",
-        "고기 테이블 추천": "https://smartstore.naver.com/kssinesp/products/6434002841",
-
-        "간식 오리츄": "https://smartstore.naver.com/thenaeun2018/products/4589988752",
-        "오리츄 간식": "https://smartstore.naver.com/thenaeun2018/products/4589988752",
-        "오리츄 추천": "https://smartstore.naver.com/thenaeun2018/products/4589988752",
-        "강아지 오리츄": "https://smartstore.naver.com/thenaeun2018/products/4589988752",
-        "강아지간식 S": "https://smartstore.naver.com/thenaeun2018/products/4589988752",
-
-        "북어 키트": "https://smartstore.naver.com/glecoleshop/products/10057924203",
-        "북어 선물": "https://smartstore.naver.com/glecoleshop/products/10057924203",
-        "북어 만들기": "https://smartstore.naver.com/glecoleshop/products/10057924203",
-        "액막이 북어": "https://smartstore.naver.com/glecoleshop/products/10057924203",
-        "복복이 선물": "https://smartstore.naver.com/glecoleshop/products/10057924203",
+        "https://brand.naver.com/sennheiserstore/products/12534300529": [
+            "젠하이저 ANC",
+            "젠하이저 패키지",
+            "HDB630 헤드폰",
+            "BTD700 패키지",
+            "BTD700 헤드폰",
+        ],
+        "https://smartstore.naver.com/ottempt_4291/products/4665304597": [
+            "드립백커피 특가",
+            "드립백커피 한달",
+            "드립백커피 하루",
+            "드립백커피 한잔",
+            "드립백커피 우편",
+        ],
+        "https://smartstore.naver.com/kssinesp/products/6434002841": [
+            "가스버너 테이블",
+            "고기 불판 테이블",
+            "접이식 밥상 고기",
+            "접이식 불판 밥상",
+            "고기 테이블 추천",
+        ],
+        "https://smartstore.naver.com/thenaeun2018/products/4589988752": [
+            "간식 오리츄",
+            "오리츄 간식",
+            "오리츄 추천",
+            "강아지 오리츄",
+            "강아지간식 S",
+        ],
+        "https://smartstore.naver.com/glecoleshop/products/10057924203": [
+            "북어 키트",
+            "북어 선물",
+            "북어 만들기",
+            "액막이 북어",
+            "복복이 선물",
+        ],
     }
     
     # Run crawler test with command line arguments
