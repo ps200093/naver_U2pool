@@ -8,6 +8,7 @@ import random
 import logging
 import argparse
 import requests
+import gc
 from datetime import datetime
 from pathlib import Path
 from selenium import webdriver
@@ -303,13 +304,20 @@ class SimpleVisitor:
             return False
     
     def close(self):
-        """드라이버 종료"""
+        """드라이버 종료 및 메모리 정리"""
         if self.driver:
             try:
                 self.driver.quit()
                 logger.info("[OK] 드라이버 종료 완료")
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"[WARNING] 드라이버 종료 중 오류: {e}")
+            finally:
+                # 참조 해제
+                self.driver = None
+        
+        # 명시적 가비지 컬렉션
+        gc.collect()
+        logger.debug("[MEMORY] 가비지 컬렉션 완료")
     
     def run(self, url, repeat_count=10, wait_min=3, wait_max=10, rest_minutes=0):
         """
@@ -364,8 +372,14 @@ class SimpleVisitor:
                 fail_count += 1
             
             finally:
-                # 드라이버 종료
+                # 드라이버 종료 및 메모리 정리
                 self.close()
+                
+                # 주기적 메모리 정리 (매 10회마다)
+                if i % 10 == 0:
+                    logger.info(f"[MEMORY] 주기적 메모리 정리 중... ({i}/{repeat_count})")
+                    gc.collect()
+                    time.sleep(1)  # 시스템 안정화
                 
                 # 휴식 시간
                 if i < repeat_count and rest_minutes > 0:
@@ -381,6 +395,11 @@ class SimpleVisitor:
         logger.info(f"  - 실패: {fail_count}")
         logger.info(f"  - 성공률: {success_count / repeat_count * 100:.1f}%")
         logger.info(f"{'='*70}")
+        
+        # 최종 메모리 정리
+        logger.info(f"[MEMORY] 최종 메모리 정리 중...")
+        gc.collect()
+        logger.info(f"[OK] 모든 작업 완료 및 메모리 정리 완료")
 
 
 def main():
