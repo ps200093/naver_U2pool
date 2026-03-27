@@ -335,9 +335,9 @@ class SimpleVisitor:
         logger.info(f"{'='*70}")
         logger.info(f"  - URL: {url}")
         logger.info(f"  - 반복 횟수: {repeat_count}")
-            logger.info(f"  - 대기 시간: {wait_min}~{wait_max}초")
-            logger.info(f"  - 게스트 모드: 사용")
-            logger.info(f"  - NordVPN: {'사용' if self.use_nordvpn else '사용 안 함'}")
+        logger.info(f"  - 대기 시간: {wait_min}~{wait_max}초")
+        logger.info(f"  - 게스트 모드: 사용")
+        logger.info(f"  - NordVPN: {'사용' if self.use_nordvpn else '사용 안 함'}")
         logger.info(f"{'='*70}\n")
         
         success_count = 0
