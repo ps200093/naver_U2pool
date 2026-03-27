@@ -24,6 +24,122 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class NordVPNCLI:
+    """NordVPN CLI 제어"""
+    
+    def __init__(self, target_country="KR"):
+        """
+        초기화
+        
+        Args:
+            target_country: 타겟 국가 코드 (KR, JP, US 등)
+        """
+        self.target_country = target_country
+        self.country_map = {
+            "KR": "Korea South",
+            "JP": "Japan",
+            "US": "United States",
+            "GB": "United Kingdom",
+            "DE": "Germany",
+            "FR": "France",
+            "CA": "Canada",
+            "AU": "Australia",
+            "SG": "Singapore",
+            "TW": "Taiwan"
+        }
+    
+    def connect(self, country_code=None):
+        """
+        NordVPN 서버에 연결
+        
+        Args:
+            country_code: 국가 코드 (None이면 타겟 국가 사용)
+        
+        Returns:
+            bool: 연결 성공 여부
+        """
+        import subprocess
+        
+        try:
+            country = country_code or self.target_country
+            country_name = self.country_map.get(country, "Korea South")
+            
+            logger.info(f"[VPN] NordVPN 연결 중... ({country_name})")
+            
+            # NordVPN CLI 명령어
+            result = subprocess.run(
+                ["nordvpn", "connect", country_name],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                logger.info(f"[OK] VPN 연결 완료: {country_name}")
+                time.sleep(2)  # 연결 안정화
+                return True
+            else:
+                logger.error(f"[ERROR] VPN 연결 실패: {result.stderr}")
+                return False
+        
+        except FileNotFoundError:
+            logger.error("[ERROR] NordVPN CLI가 설치되지 않았습니다.")
+            logger.error("[TIP] NordVPN 앱 설치: https://nordvpn.com/download/")
+            return False
+        except Exception as e:
+            logger.error(f"[ERROR] VPN 연결 오류: {e}")
+            return False
+    
+    def disconnect(self):
+        """VPN 연결 해제"""
+        import subprocess
+        
+        try:
+            logger.info("[VPN] VPN 연결 해제 중...")
+            result = subprocess.run(
+                ["nordvpn", "disconnect"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                logger.info("[OK] VPN 연결 해제 완료")
+                time.sleep(1)
+                return True
+            else:
+                logger.warning(f"[WARNING] VPN 해제 실패: {result.stderr}")
+                return False
+        
+        except Exception as e:
+            logger.warning(f"[WARNING] VPN 해제 오류: {e}")
+            return False
+    
+    def get_random_server(self):
+        """랜덤 서버 연결 (빠른 서버)"""
+        import subprocess
+        
+        try:
+            logger.info("[VPN] 랜덤 서버 연결 중...")
+            result = subprocess.run(
+                ["nordvpn", "connect"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                logger.info("[OK] 랜덤 서버 연결 완료")
+                time.sleep(2)
+                return True
+            else:
+                return False
+        
+        except Exception as e:
+            logger.error(f"[ERROR] 랜덤 서버 연결 오류: {e}")
+            return False
+
+
 class NordVPNRotator:
     """NordVPN 프록시 로테이션"""
     
@@ -194,28 +310,39 @@ class NordVPNRotator:
 class SimpleVisitor:
     """간단한 URL 방문기"""
     
-    def __init__(self, headless=False, use_nordvpn=False, nordvpn_username=None, nordvpn_password=None, target_countries=None, guest_mode=True):
+    def __init__(self, headless=False, use_nordvpn=False, nordvpn_username=None, nordvpn_password=None, target_countries=None, guest_mode=True, use_cli=True):
         """
         초기화
         
         Args:
             headless: 헤드리스 모드
             use_nordvpn: NordVPN 사용 여부
-            nordvpn_username: NordVPN 사용자명
-            nordvpn_password: NordVPN 비밀번호
+            nordvpn_username: NordVPN 사용자명 (프록시 방식)
+            nordvpn_password: NordVPN 비밀번호 (프록시 방식)
             target_countries: 국가 코드 리스트 (예: ["KR", "JP"]), None이면 모든 국가
             guest_mode: 게스트 모드 사용 (기본: True)
+            use_cli: NordVPN CLI 사용 (기본: True, 프록시보다 안정적)
         """
         self.headless = headless
         self.use_nordvpn = use_nordvpn
+        self.use_cli = use_cli
         self.nordvpn = None
+        self.nordvpn_cli = None
         self.driver = None
         self.guest_mode = guest_mode
         
         if use_nordvpn:
-            self.nordvpn = NordVPNRotator(nordvpn_username, nordvpn_password)
-            # 서버 목록 로드 (HTTP 프록시 사용 - 더 안정적)
-            self.nordvpn.fetch_nordvpn_servers(limit=100, use_http=True, target_countries=target_countries)
+            if use_cli:
+                # CLI 방식 (권장)
+                target_country = target_countries[0] if target_countries else "KR"
+                self.nordvpn_cli = NordVPNCLI(target_country)
+                logger.info("[VPN] NordVPN CLI 모드 (권장)")
+            else:
+                # 프록시 방식 (기존)
+                self.nordvpn = NordVPNRotator(nordvpn_username, nordvpn_password)
+                # 서버 목록 로드 (HTTP 프록시 사용 - 더 안정적)
+                self.nordvpn.fetch_nordvpn_servers(limit=100, use_http=True, target_countries=target_countries)
+                logger.info("[VPN] NordVPN 프록시 모드")
     
     def create_driver(self, proxy_server=None):
         """
@@ -351,13 +478,21 @@ class SimpleVisitor:
             try:
                 # IP 변경 (NordVPN)
                 proxy_server = None
-                if self.use_nordvpn and self.nordvpn:
-                    proxy_server = self.nordvpn.get_random_server()
-                    if proxy_server:
-                        logger.info(f"[VPN] 서버 변경: {proxy_server['country']}")
+                if self.use_nordvpn:
+                    if self.use_cli and self.nordvpn_cli:
+                        # CLI 방식: VPN 연결
+                        self.nordvpn_cli.connect()
+                    elif self.nordvpn:
+                        # 프록시 방식: 프록시 서버 선택
+                        proxy_server = self.nordvpn.get_random_server()
+                        if proxy_server:
+                            logger.info(f"[VPN] 서버 변경: {proxy_server['country']}")
                 
-                # 새 드라이버 생성 (프록시 적용)
-                self.create_driver(proxy_server)
+                # 새 드라이버 생성 (CLI 방식은 프록시 없음)
+                if self.use_cli or not self.use_nordvpn:
+                    self.create_driver(None)
+                else:
+                    self.create_driver(proxy_server)
                 
                 # URL 방문
                 success = self.visit_url(url, wait_min, wait_max)
@@ -399,6 +534,11 @@ class SimpleVisitor:
         # 최종 메모리 정리
         logger.info(f"[MEMORY] 최종 메모리 정리 중...")
         gc.collect()
+        
+        # VPN 연결 해제 (CLI 방식)
+        if self.use_nordvpn and self.use_cli and self.nordvpn_cli:
+            self.nordvpn_cli.disconnect()
+        
         logger.info(f"[OK] 모든 작업 완료 및 메모리 정리 완료")
 
 

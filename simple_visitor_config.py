@@ -61,7 +61,8 @@ def main():
     logger.info(f"  - 게스트 모드: {config.get('guest_mode', True)}")
     logger.info(f"  - NordVPN: {config.get('use_nordvpn', False)}")
     if config.get('use_nordvpn'):
-        logger.info(f"  - NordVPN 계정: {config.get('nordvpn_username', '설정 안 됨')}")
+        use_cli = config.get('use_cli', True)
+        logger.info(f"  - VPN 방식: {'CLI (권장)' if use_cli else '프록시'}")
         target_countries = config.get('target_countries')
         if target_countries:
             logger.info(f"  - 타겟 국가: {', '.join(target_countries)}")
@@ -76,7 +77,8 @@ def main():
         nordvpn_username=config.get('nordvpn_username'),
         nordvpn_password=config.get('nordvpn_password'),
         target_countries=config.get('target_countries'),
-        guest_mode=config.get('guest_mode', True)  # 기본값: True (게스트 모드)
+        guest_mode=config.get('guest_mode', True),  # 기본값: True (게스트 모드)
+        use_cli=config.get('use_cli', True)  # 기본값: True (CLI 방식)
     )
     
     try:
