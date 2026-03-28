@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class NordVPNCLI:
-    """NordVPN CLI 제어"""
+    """NordVPN CLI 제어 (Windows 최적화)"""
     
     def __init__(self, target_country="KR"):
         """
@@ -35,8 +35,9 @@ class NordVPNCLI:
             target_country: 타겟 국가 코드 (KR, JP, US 등)
         """
         self.target_country = target_country
+        self.nordvpn_path = self._find_nordvpn_path()
         self.country_map = {
-            "KR": "Korea South",
+            "KR": "South Korea",
             "JP": "Japan",
             "US": "United States",
             "GB": "United Kingdom",
@@ -48,6 +49,97 @@ class NordVPNCLI:
             "TW": "Taiwan"
         }
     
+    def _find_nordvpn_path(self):
+        """Windows에서 NordVPN CLI 경로 찾기"""
+        import os
+        
+        # 가능한 경로들
+        possible_paths = [
+            r"C:\Program Files\NordVPN\nordvpn.exe",
+            r"C:\Program Files (x86)\NordVPN\nordvpn.exe",
+            os.path.expanduser(r"~\AppData\Local\NordVPN\nordvpn.exe"),
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                logger.info(f"[OK] NordVPN CLI 발견: {path}")
+                return path
+        
+        # PATH에서 찾기
+        import shutil
+        cli_path = shutil.which("nordvpn")
+        if cli_path:
+            logger.info(f"[OK] NordVPN CLI 발견: {cli_path}")
+            return cli_path
+        
+        logger.warning("[WARNING] NordVPN CLI를 찾을 수 없습니다.")
+        return None
+    
+    def _run_command(self, *args, timeout=30):
+        """
+        NordVPN CLI 명령 실행
+        
+        Args:
+            *args: 명령 인자들
+            timeout: 타임아웃 (초)
+        
+        Returns:
+            tuple: (success, output)
+        """
+        import subprocess
+        import os
+        
+        if not self.nordvpn_path:
+            logger.error("[ERROR] NordVPN CLI 경로가 없습니다.")
+            return False, "CLI not found"
+        
+        try:
+            # NordVPN 디렉토리로 이동 (중요!)
+            nordvpn_dir = os.path.dirname(self.nordvpn_path)
+            original_dir = os.getcwd()
+            
+            if nordvpn_dir and os.path.exists(nordvpn_dir):
+                os.chdir(nordvpn_dir)
+                logger.debug(f"[DEBUG] 작업 디렉토리 변경: {nordvpn_dir}")
+            
+            # 명령 실행 (디렉토리 내에서 nordvpn 명령 직접 사용)
+            cmd = ['nordvpn'] + list(args)
+            logger.debug(f"[DEBUG] 실행: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding='utf-8',
+                errors='ignore'
+            )
+            
+            output = result.stdout + result.stderr
+            success = result.returncode == 0
+            
+            # 원래 디렉토리로 복귀
+            os.chdir(original_dir)
+            
+            return success, output
+        
+        except subprocess.TimeoutExpired:
+            logger.error(f"[ERROR] 명령 타임아웃 ({timeout}초)")
+            # 원래 디렉토리로 복귀
+            try:
+                os.chdir(original_dir)
+            except:
+                pass
+            return False, "Timeout"
+        except Exception as e:
+            logger.error(f"[ERROR] 명령 실행 실패: {e}")
+            # 원래 디렉토리로 복귀
+            try:
+                os.chdir(original_dir)
+            except:
+                pass
+            return False, str(e)
+    
     def connect(self, country_code=None):
         """
         NordVPN 서버에 연결
@@ -58,86 +150,73 @@ class NordVPNCLI:
         Returns:
             bool: 연결 성공 여부
         """
-        import subprocess
-        
-        try:
-            country = country_code or self.target_country
-            country_name = self.country_map.get(country, "Korea South")
-            
-            logger.info(f"[VPN] NordVPN 연결 중... ({country_name})")
-            
-            # NordVPN CLI 명령어
-            result = subprocess.run(
-                ["nordvpn", "connect", country_name],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode == 0:
-                logger.info(f"[OK] VPN 연결 완료: {country_name}")
-                time.sleep(2)  # 연결 안정화
-                return True
-            else:
-                logger.error(f"[ERROR] VPN 연결 실패: {result.stderr}")
-                return False
-        
-        except FileNotFoundError:
+        if not self.nordvpn_path:
             logger.error("[ERROR] NordVPN CLI가 설치되지 않았습니다.")
             logger.error("[TIP] NordVPN 앱 설치: https://nordvpn.com/download/")
             return False
+        
+        try:
+            country = country_code or self.target_country
+            country_name = self.country_map.get(country, "South Korea")
+            
+            logger.info(f"[VPN] NordVPN 연결 중... ({country_name})")
+            
+            # NordVPN 연결
+            success, output = self._run_command("-c", "-g", country_name)
+            
+            logger.debug(f"[DEBUG] 출력: {output[:200]}")
+            
+            if success or "connected" in output.lower() or "연결" in output.lower():
+                logger.info(f"[OK] VPN 연결 완료: {country_name}")
+                time.sleep(3)  # 연결 안정화
+                return True
+            else:
+                logger.error(f"[ERROR] VPN 연결 실패: {output[:200]}")
+                return False
+        
         except Exception as e:
             logger.error(f"[ERROR] VPN 연결 오류: {e}")
             return False
     
     def disconnect(self):
         """VPN 연결 해제"""
-        import subprocess
+        if not self.nordvpn_path:
+            return False
         
         try:
             logger.info("[VPN] VPN 연결 해제 중...")
-            result = subprocess.run(
-                ["nordvpn", "disconnect"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
             
-            if result.returncode == 0:
+            success, output = self._run_command("-d", timeout=15)
+            
+            if success or "disconnected" in output.lower() or "연결 해제" in output.lower():
                 logger.info("[OK] VPN 연결 해제 완료")
-                time.sleep(1)
+                time.sleep(2)
                 return True
             else:
-                logger.warning(f"[WARNING] VPN 해제 실패: {result.stderr}")
+                logger.warning(f"[WARNING] VPN 해제 실패: {output[:200]}")
                 return False
         
         except Exception as e:
             logger.warning(f"[WARNING] VPN 해제 오류: {e}")
             return False
     
-    def get_random_server(self):
-        """랜덤 서버 연결 (빠른 서버)"""
-        import subprocess
+    def get_status(self):
+        """현재 VPN 상태 확인"""
+        if not self.nordvpn_path:
+            return None
         
         try:
-            logger.info("[VPN] 랜덤 서버 연결 중...")
-            result = subprocess.run(
-                ["nordvpn", "connect"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            success, output = self._run_command("-status", timeout=10)
             
-            if result.returncode == 0:
-                logger.info("[OK] 랜덤 서버 연결 완료")
-                time.sleep(2)
-                return True
+            if success:
+                logger.info(f"[STATUS] {output[:200]}")
+                return output
             else:
-                return False
+                return None
         
         except Exception as e:
-            logger.error(f"[ERROR] 랜덤 서버 연결 오류: {e}")
-            return False
+            logger.error(f"[ERROR] 상태 확인 오류: {e}")
+            return None
 
 
 class NordVPNRotator:
