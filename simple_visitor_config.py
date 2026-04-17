@@ -44,8 +44,10 @@ def main():
         logger.error("[ERROR] 설정 파일을 로드할 수 없습니다. 종료합니다.")
         return
     
-    # 필수 항목 체크
-    if not config.get('url'):
+    # URL 처리: url 또는 urls 필드
+    urls = config.get('urls') or config.get('url')
+    
+    if not urls:
         logger.error("[ERROR] URL이 설정되지 않았습니다.")
         return
     
@@ -53,7 +55,15 @@ def main():
     logger.info(f"\n{'='*70}")
     logger.info(f"[CONFIG] 설정 정보")
     logger.info(f"{'='*70}")
-    logger.info(f"  - URL: {config.get('url')}")
+    
+    # URL 출력
+    if isinstance(urls, list):
+        logger.info(f"  - URLs: {len(urls)}개")
+        for idx, url in enumerate(urls, 1):
+            logger.info(f"    {idx}. {url}")
+    else:
+        logger.info(f"  - URL: {urls}")
+    
     logger.info(f"  - 반복 횟수: {config.get('repeat_count', 10)}")
     logger.info(f"  - 대기 시간: {config.get('wait_min', 3)}~{config.get('wait_max', 10)}초")
     logger.info(f"  - 휴식 시간: {config.get('rest_minutes', 0)}분")
@@ -84,7 +94,7 @@ def main():
     try:
         # 실행
         visitor.run(
-            url=config['url'],
+            urls=urls,
             repeat_count=config.get('repeat_count', 10),
             wait_min=config.get('wait_min', 3),
             wait_max=config.get('wait_max', 10),

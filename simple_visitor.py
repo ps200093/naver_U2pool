@@ -525,21 +525,35 @@ class SimpleVisitor:
         gc.collect()
         logger.debug("[MEMORY] 가비지 컬렉션 완료")
     
-    def run(self, url, repeat_count=10, wait_min=3, wait_max=10, rest_minutes=0):
+    def run(self, urls=None, repeat_count=10, wait_min=3, wait_max=10, rest_minutes=0):
         """
-        URL 반복 방문
+        URL 반복 방문 (단일 또는 여러 URL 지원)
         
         Args:
-            url: 방문할 URL
+            urls: 방문할 URL (문자열 또는 리스트)
             repeat_count: 반복 횟수
             wait_min: 최소 대기 시간 (초)
             wait_max: 최대 대기 시간 (초)
             rest_minutes: 사이클 간 휴식 시간 (분)
         """
+        # URL을 리스트로 변환
+        if isinstance(urls, str):
+            url_list = [urls]
+        elif isinstance(urls, list):
+            url_list = urls
+        else:
+            logger.error("[ERROR] URL이 제공되지 않았습니다.")
+            return
+        
         logger.info(f"\n{'='*70}")
         logger.info(f"[START] URL 반복 방문 시작")
         logger.info(f"{'='*70}")
-        logger.info(f"  - URL: {url}")
+        if len(url_list) == 1:
+            logger.info(f"  - URL: {url_list[0]}")
+        else:
+            logger.info(f"  - URLs: {len(url_list)}개")
+            for idx, url in enumerate(url_list, 1):
+                logger.info(f"    {idx}. {url}")
         logger.info(f"  - 반복 횟수: {repeat_count}")
         logger.info(f"  - 대기 시간: {wait_min}~{wait_max}초")
         logger.info(f"  - 게스트 모드: 사용")
@@ -555,7 +569,7 @@ class SimpleVisitor:
             logger.info(f"{'='*70}")
             
             try:
-                # IP 변경 (NordVPN)
+                # IP 변경 (NordVPN) - 각 사이클 시작 시 한 번만
                 proxy_server = None
                 if self.use_nordvpn:
                     if self.use_cli and self.nordvpn_cli:
@@ -573,10 +587,26 @@ class SimpleVisitor:
                 else:
                     self.create_driver(proxy_server)
                 
-                # URL 방문
-                success = self.visit_url(url, wait_min, wait_max)
+                # 여러 URL 순회 방문
+                cycle_success = 0
+                cycle_fail = 0
                 
-                if success:
+                for url_idx, url in enumerate(url_list, 1):
+                    if len(url_list) > 1:
+                        logger.info(f"\n[URL {url_idx}/{len(url_list)}] {url}")
+                    
+                    success = self.visit_url(url, wait_min, wait_max)
+                    
+                    if success:
+                        cycle_success += 1
+                    else:
+                        cycle_fail += 1
+                
+                # 사이클 통계
+                if len(url_list) > 1:
+                    logger.info(f"[CYCLE SUMMARY] 성공: {cycle_success}/{len(url_list)}, 실패: {cycle_fail}/{len(url_list)}")
+                
+                if cycle_success > 0:
                     success_count += 1
                 else:
                     fail_count += 1
