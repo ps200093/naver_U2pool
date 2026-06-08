@@ -37,33 +37,25 @@ def load_config(config_path="simple_config.json"):
 
 def main():
     """메인 함수"""
-    # 설정 파일 로드
     config = load_config()
     
     if not config:
         logger.error("[ERROR] 설정 파일을 로드할 수 없습니다. 종료합니다.")
         return
     
-    # URL 처리: url 또는 urls 필드
-    urls = config.get('urls') or config.get('url')
-    
-    if not urls:
-        logger.error("[ERROR] URL이 설정되지 않았습니다.")
+    # 검색 작업 로드
+    searches = config.get('searches')
+    if not searches:
+        logger.error("[ERROR] 검색 작업(searches)이 설정되지 않았습니다.")
         return
     
     # 설정 출력
     logger.info(f"\n{'='*70}")
     logger.info(f"[CONFIG] 설정 정보")
     logger.info(f"{'='*70}")
-    
-    # URL 출력
-    if isinstance(urls, list):
-        logger.info(f"  - URLs: {len(urls)}개")
-        for idx, url in enumerate(urls, 1):
-            logger.info(f"    {idx}. {url}")
-    else:
-        logger.info(f"  - URL: {urls}")
-    
+    logger.info(f"  - 검색 작업: {len(searches)}개")
+    for idx, s in enumerate(searches, 1):
+        logger.info(f"    {idx}. '{s['keyword']}' → {s['url']}")
     logger.info(f"  - 반복 횟수: {config.get('repeat_count', 10)}")
     logger.info(f"  - 대기 시간: {config.get('wait_min', 3)}~{config.get('wait_max', 10)}초")
     logger.info(f"  - 휴식 시간: {config.get('rest_minutes', 0)}분")
@@ -80,21 +72,19 @@ def main():
             logger.info(f"  - 타겟 국가: 모든 국가")
     logger.info(f"{'='*70}\n")
     
-    # Visitor 생성
     visitor = SimpleVisitor(
         headless=config.get('headless', False),
         use_nordvpn=config.get('use_nordvpn', False),
         nordvpn_username=config.get('nordvpn_username'),
         nordvpn_password=config.get('nordvpn_password'),
         target_countries=config.get('target_countries'),
-        guest_mode=config.get('guest_mode', True),  # 기본값: True (게스트 모드)
-        use_cli=config.get('use_cli', True)  # 기본값: True (CLI 방식)
+        guest_mode=config.get('guest_mode', True),
+        use_cli=config.get('use_cli', True)
     )
     
     try:
-        # 실행
         visitor.run(
-            urls=urls,
+            searches=searches,
             repeat_count=config.get('repeat_count', 10),
             wait_min=config.get('wait_min', 3),
             wait_max=config.get('wait_max', 10),

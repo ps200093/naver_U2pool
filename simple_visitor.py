@@ -11,9 +11,12 @@ import requests
 import gc
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 
 # 로깅 설정
@@ -483,30 +486,124 @@ class SimpleVisitor:
     
     def visit_url(self, url, wait_min=3, wait_max=10):
         """
-        URL 방문
-        
-        Args:
-            url: 방문할 URL
-            wait_min: 최소 대기 시간 (초)
-            wait_max: 최대 대기 시간 (초)
+        URL 직접 방문 (레거시)
         """
         try:
             logger.info(f"[VISIT] {url}")
             self.driver.get(url)
-            
-            # 페이지 로드 대기
             time.sleep(2)
-            
-            # 랜덤 대기
             wait_time = random.uniform(wait_min, wait_max)
             logger.info(f"[WAIT] {wait_time:.1f}초 대기 중...")
             time.sleep(wait_time)
-            
             logger.info(f"[OK] 방문 완료")
             return True
-        
         except Exception as e:
             logger.error(f"[ERROR] 방문 실패: {e}")
+            return False
+
+    def search_and_visit(self, keyword, target_url, wait_min=3, wait_max=10):
+        """
+        네이버에서 검색 후 매칭 링크 클릭
+
+        Args:
+            keyword: 네이버 검색 키워드
+            target_url: 검색 결과에서 클릭할 대상 URL
+            wait_min: 최소 대기 시간 (초)
+            wait_max: 최대 대기 시간 (초)
+        """
+        try:
+            target_domain = urlparse(target_url).netloc.replace("www.", "")
+
+            # 1) 네이버 메인 접속
+            logger.info(f"[NAVER] 네이버 메인 접속 중...")
+            self.driver.get("https://www.naver.com")
+            time.sleep(random.uniform(1.5, 3.0))
+
+            # 2) 검색창에 키워드 입력
+            logger.info(f"[SEARCH] 검색어 입력: '{keyword}'")
+            search_box = None
+            search_selectors = [
+                "#query",
+                "input[name='query']",
+                ".search_input input",
+            ]
+            for sel in search_selectors:
+                try:
+                    search_box = self.driver.find_element(By.CSS_SELECTOR, sel)
+                    if search_box.is_displayed():
+                        break
+                    search_box = None
+                except:
+                    continue
+
+            if not search_box:
+                logger.error("[ERROR] 네이버 검색창을 찾을 수 없습니다.")
+                return False
+
+            search_box.clear()
+            time.sleep(random.uniform(0.3, 0.6))
+
+            for char in keyword:
+                search_box.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
+
+            time.sleep(random.uniform(0.5, 1.0))
+            search_box.send_keys(Keys.RETURN)
+            time.sleep(random.uniform(2.0, 3.5))
+
+            logger.info(f"[SEARCH] 검색 결과 페이지 로드 완료")
+
+            # 3) 검색 결과에서 대상 도메인 링크 찾기
+            logger.info(f"[FIND] 대상 도메인 검색 중: {target_domain}")
+
+            # 스크롤하며 링크 탐색 (최대 5회 스크롤)
+            for scroll in range(5):
+                links = self.driver.find_elements(By.TAG_NAME, "a")
+                for link in links:
+                    try:
+                        href = link.get_attribute("href")
+                        if not href:
+                            continue
+
+                        link_domain = urlparse(href).netloc.replace("www.", "")
+                        if target_domain in link_domain or link_domain in target_domain:
+                            if not link.is_displayed():
+                                continue
+
+                            # 요소가 화면에 보이도록 스크롤
+                            self.driver.execute_script(
+                                "arguments[0].scrollIntoView({block: 'center'});", link
+                            )
+                            time.sleep(random.uniform(0.5, 1.0))
+
+                            logger.info(f"[CLICK] 매칭 링크 발견: {href[:80]}")
+                            link.click()
+                            time.sleep(2)
+
+                            # 새 탭으로 열렸을 경우 전환
+                            if len(self.driver.window_handles) > 1:
+                                self.driver.switch_to.window(self.driver.window_handles[-1])
+
+                            # 페이지 체류
+                            wait_time = random.uniform(wait_min, wait_max)
+                            logger.info(f"[WAIT] {wait_time:.1f}초 체류 중...")
+                            time.sleep(wait_time)
+                            logger.info(f"[OK] 검색→방문 완료 (URL: {self.driver.current_url[:80]})")
+                            return True
+                    except:
+                        continue
+
+                # 스크롤 다운
+                self.driver.execute_script(
+                    "window.scrollTo({top: window.pageYOffset + 600, behavior: 'smooth'});"
+                )
+                time.sleep(random.uniform(1.0, 2.0))
+
+            logger.warning(f"[FAIL] 검색 결과에서 '{target_domain}' 링크를 찾지 못했습니다.")
+            return False
+
+        except Exception as e:
+            logger.error(f"[ERROR] 검색→방문 실패: {e}")
             return False
     
     def close(self):
@@ -525,130 +622,134 @@ class SimpleVisitor:
         gc.collect()
         logger.debug("[MEMORY] 가비지 컬렉션 완료")
     
-    def run(self, urls=None, repeat_count=10, wait_min=3, wait_max=10, rest_minutes=0):
+    def run(self, searches=None, repeat_count=10, wait_min=3, wait_max=10, rest_minutes=0):
         """
-        URL 반복 방문 (단일 또는 여러 URL 지원)
-        
+        네이버 검색 → 매칭 링크 클릭 반복
+
         Args:
-            urls: 방문할 URL (문자열 또는 리스트)
+            searches: 검색 작업 리스트 [{"keyword": "...", "url": "..."}, ...]
             repeat_count: 반복 횟수
             wait_min: 최소 대기 시간 (초)
             wait_max: 최대 대기 시간 (초)
             rest_minutes: 사이클 간 휴식 시간 (분)
         """
-        # URL을 리스트로 변환
-        if isinstance(urls, str):
-            url_list = [urls]
-        elif isinstance(urls, list):
-            url_list = urls
-        else:
-            logger.error("[ERROR] URL이 제공되지 않았습니다.")
+        if not searches:
+            logger.error("[ERROR] 검색 작업이 제공되지 않았습니다.")
             return
-        
+
+        if isinstance(searches, dict):
+            searches = [searches]
+
         logger.info(f"\n{'='*70}")
-        logger.info(f"[START] URL 반복 방문 시작")
+        logger.info(f"[START] 네이버 검색→방문 시작")
         logger.info(f"{'='*70}")
-        if len(url_list) == 1:
-            logger.info(f"  - URL: {url_list[0]}")
-        else:
-            logger.info(f"  - URLs: {len(url_list)}개")
-            for idx, url in enumerate(url_list, 1):
-                logger.info(f"    {idx}. {url}")
+        logger.info(f"  - 검색 작업: {len(searches)}개")
+        for idx, s in enumerate(searches, 1):
+            logger.info(f"    {idx}. 키워드: '{s['keyword']}' → {s['url']}")
         logger.info(f"  - 반복 횟수: {repeat_count}")
         logger.info(f"  - 대기 시간: {wait_min}~{wait_max}초")
-        logger.info(f"  - 게스트 모드: 사용")
+        logger.info(f"  - 게스트 모드: {'사용' if self.guest_mode else '미사용'}")
         logger.info(f"  - NordVPN: {'사용' if self.use_nordvpn else '사용 안 함'}")
         logger.info(f"{'='*70}\n")
-        
+
         success_count = 0
         fail_count = 0
-        
+
         for i in range(1, repeat_count + 1):
             logger.info(f"\n{'='*70}")
             logger.info(f"[CYCLE] {i}/{repeat_count}")
             logger.info(f"{'='*70}")
-            
+
             try:
-                # IP 변경 (NordVPN) - 각 사이클 시작 시 한 번만
                 proxy_server = None
                 if self.use_nordvpn:
                     if self.use_cli and self.nordvpn_cli:
-                        # CLI 방식: VPN 연결
                         self.nordvpn_cli.connect()
                     elif self.nordvpn:
-                        # 프록시 방식: 프록시 서버 선택
                         proxy_server = self.nordvpn.get_random_server()
                         if proxy_server:
                             logger.info(f"[VPN] 서버 변경: {proxy_server['country']}")
-                
-                # 새 드라이버 생성 (CLI 방식은 프록시 없음)
+
                 if self.use_cli or not self.use_nordvpn:
                     self.create_driver(None)
                 else:
                     self.create_driver(proxy_server)
-                
-                # 여러 URL 순회 방문
+
                 cycle_success = 0
                 cycle_fail = 0
-                
-                for url_idx, url in enumerate(url_list, 1):
-                    if len(url_list) > 1:
-                        logger.info(f"\n[URL {url_idx}/{len(url_list)}] {url}")
-                    
-                    success = self.visit_url(url, wait_min, wait_max)
-                    
+
+                for s_idx, search in enumerate(searches, 1):
+                    keyword = search['keyword']
+                    target_url = search['url']
+
+                    if len(searches) > 1:
+                        logger.info(f"\n[TASK {s_idx}/{len(searches)}] '{keyword}' → {target_url}")
+
+                    success = self.search_and_visit(keyword, target_url, wait_min, wait_max)
+
                     if success:
                         cycle_success += 1
                     else:
                         cycle_fail += 1
-                
-                # 사이클 통계
-                if len(url_list) > 1:
-                    logger.info(f"[CYCLE SUMMARY] 성공: {cycle_success}/{len(url_list)}, 실패: {cycle_fail}/{len(url_list)}")
-                
+
+                    # 다음 검색 전 새 탭 정리
+                    if s_idx < len(searches):
+                        self._close_extra_tabs()
+
+                if len(searches) > 1:
+                    logger.info(f"[CYCLE SUMMARY] 성공: {cycle_success}/{len(searches)}, 실패: {cycle_fail}/{len(searches)}")
+
                 if cycle_success > 0:
                     success_count += 1
                 else:
                     fail_count += 1
-                
+
             except Exception as e:
                 logger.error(f"[ERROR] 사이클 {i} 실패: {e}")
                 fail_count += 1
-            
+
             finally:
-                # 드라이버 종료 및 메모리 정리
                 self.close()
-                
-                # 주기적 메모리 정리 (매 10회마다)
+
                 if i % 10 == 0:
                     logger.info(f"[MEMORY] 주기적 메모리 정리 중... ({i}/{repeat_count})")
                     gc.collect()
-                    time.sleep(1)  # 시스템 안정화
-                
-                # 휴식 시간
+                    time.sleep(1)
+
                 if i < repeat_count and rest_minutes > 0:
                     rest_seconds = int(rest_minutes * 60)
                     logger.info(f"\n[REST] {rest_minutes}분 휴식 중...")
                     time.sleep(rest_seconds)
-        
-        # 최종 통계
+
         logger.info(f"\n{'='*70}")
         logger.info(f"[DONE] 완료!")
         logger.info(f"{'='*70}")
         logger.info(f"  - 성공: {success_count}")
         logger.info(f"  - 실패: {fail_count}")
-        logger.info(f"  - 성공률: {success_count / repeat_count * 100:.1f}%")
+        if repeat_count > 0:
+            logger.info(f"  - 성공률: {success_count / repeat_count * 100:.1f}%")
         logger.info(f"{'='*70}")
-        
-        # 최종 메모리 정리
+
         logger.info(f"[MEMORY] 최종 메모리 정리 중...")
         gc.collect()
-        
-        # VPN 연결 해제 (CLI 방식)
+
         if self.use_nordvpn and self.use_cli and self.nordvpn_cli:
             self.nordvpn_cli.disconnect()
-        
+
         logger.info(f"[OK] 모든 작업 완료 및 메모리 정리 완료")
+
+    def _close_extra_tabs(self):
+        """메인 탭만 남기고 추가 탭 닫기"""
+        try:
+            handles = self.driver.window_handles
+            if len(handles) > 1:
+                main = handles[0]
+                for h in handles[1:]:
+                    self.driver.switch_to.window(h)
+                    self.driver.close()
+                self.driver.switch_to.window(main)
+        except:
+            pass
 
 
 def main():
