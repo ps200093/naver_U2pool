@@ -501,18 +501,71 @@ class SimpleVisitor:
             logger.error(f"[ERROR] 방문 실패: {e}")
             return False
 
+    def _extract_match_keys(self, target_url):
+        """
+        대상 URL에서 매칭용 키 추출
+
+        Returns:
+            dict: nv_mid, domain, path 등 매칭에 사용할 키들
+        """
+        from urllib.parse import parse_qs
+
+        parsed = urlparse(target_url)
+        keys = {
+            "domain": parsed.netloc.replace("www.", ""),
+            "nv_mid": None,
+            "product_id": None,
+        }
+
+        # nv_mid 파라미터 추출
+        params = parse_qs(parsed.query)
+        if "nv_mid" in params:
+            keys["nv_mid"] = params["nv_mid"][0]
+
+        # /products/숫자 패턴에서 product_id 추출
+        if "/products/" in parsed.path:
+            keys["product_id"] = parsed.path.split("/products/")[-1].split("/")[0].split("?")[0]
+
+        return keys
+
+    def _is_link_match(self, href, match_keys):
+        """href가 대상 URL과 매칭되는지 확인"""
+        if not href:
+            return False
+
+        # nv_mid가 있으면 href 안에 해당 nv_mid가 포함되어 있는지 확인
+        nv_mid = match_keys.get("nv_mid")
+        if nv_mid and nv_mid in href:
+            return True
+
+        # product_id가 있으면 href 안에 포함되어 있는지 확인
+        product_id = match_keys.get("product_id")
+        if product_id and product_id in href:
+            return True
+
+        # 일반 도메인 매칭 (네이버 내부 도메인 제외)
+        target_domain = match_keys.get("domain", "")
+        naver_internal = ["search.naver.com", "cr3.shopping.naver.com", "cr2.shopping.naver.com"]
+        if target_domain and target_domain not in naver_internal:
+            link_domain = urlparse(href).netloc.replace("www.", "")
+            if target_domain in link_domain or link_domain in target_domain:
+                return True
+
+        return False
+
     def search_and_visit(self, keyword, target_url, wait_min=3, wait_max=10):
         """
         네이버에서 검색 후 매칭 링크 클릭
 
         Args:
             keyword: 네이버 검색 키워드
-            target_url: 검색 결과에서 클릭할 대상 URL
+            target_url: 검색 결과에서 클릭할 대상 URL (nv_mid 포함 가능)
             wait_min: 최소 대기 시간 (초)
             wait_max: 최대 대기 시간 (초)
         """
         try:
-            target_domain = urlparse(target_url).netloc.replace("www.", "")
+            match_keys = self._extract_match_keys(target_url)
+            logger.info(f"[MATCH] 매칭 키: nv_mid={match_keys['nv_mid']}, domain={match_keys['domain']}")
 
             # 1) 네이버 메인 접속
             logger.info(f"[NAVER] 네이버 메인 접속 중...")
@@ -553,11 +606,10 @@ class SimpleVisitor:
 
             logger.info(f"[SEARCH] 검색 결과 페이지 로드 완료")
 
-            # 3) 검색 결과에서 대상 도메인 링크 찾기
-            logger.info(f"[FIND] 대상 도메인 검색 중: {target_domain}")
+            # 3) 검색 결과에서 매칭 링크 찾기
+            logger.info(f"[FIND] 매칭 링크 탐색 중...")
 
-            # 스크롤하며 링크 탐색 (최대 5회 스크롤)
-            for scroll in range(5):
+            for scroll in range(7):
                 links = self.driver.find_elements(By.TAG_NAME, "a")
                 for link in links:
                     try:
@@ -565,26 +617,27 @@ class SimpleVisitor:
                         if not href:
                             continue
 
-                        link_domain = urlparse(href).netloc.replace("www.", "")
-                        if target_domain in link_domain or link_domain in target_domain:
+                        if self._is_link_match(href, match_keys):
                             if not link.is_displayed():
                                 continue
+                            # 너무 작은 요소(아이콘 등) 제외
+                            size = link.size
+                            if size.get("width", 0) < 20 or size.get("height", 0) < 10:
+                                continue
 
-                            # 요소가 화면에 보이도록 스크롤
                             self.driver.execute_script(
                                 "arguments[0].scrollIntoView({block: 'center'});", link
                             )
                             time.sleep(random.uniform(0.5, 1.0))
 
-                            logger.info(f"[CLICK] 매칭 링크 발견: {href[:80]}")
+                            link_text = link.text.strip()[:50] if link.text else ""
+                            logger.info(f"[CLICK] 매칭 링크 발견: {link_text} ({href[:80]})")
                             link.click()
                             time.sleep(2)
 
-                            # 새 탭으로 열렸을 경우 전환
                             if len(self.driver.window_handles) > 1:
                                 self.driver.switch_to.window(self.driver.window_handles[-1])
 
-                            # 페이지 체류
                             wait_time = random.uniform(wait_min, wait_max)
                             logger.info(f"[WAIT] {wait_time:.1f}초 체류 중...")
                             time.sleep(wait_time)
@@ -593,13 +646,12 @@ class SimpleVisitor:
                     except:
                         continue
 
-                # 스크롤 다운
                 self.driver.execute_script(
                     "window.scrollTo({top: window.pageYOffset + 600, behavior: 'smooth'});"
                 )
                 time.sleep(random.uniform(1.0, 2.0))
 
-            logger.warning(f"[FAIL] 검색 결과에서 '{target_domain}' 링크를 찾지 못했습니다.")
+            logger.warning(f"[FAIL] 검색 결과에서 매칭 링크를 찾지 못했습니다. (nv_mid={match_keys['nv_mid']})")
             return False
 
         except Exception as e:
