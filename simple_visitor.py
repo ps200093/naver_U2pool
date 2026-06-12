@@ -553,6 +553,114 @@ class SimpleVisitor:
 
         return False
 
+    def search_and_click_by_mark(self, keyword, mark_keyword, wait_min=3, wait_max=10):
+        """
+        네이버에서 검색 후 <span> 안의 <mark> 텍스트가 mark_keyword와 일치하는 <a>를 클릭
+
+        Args:
+            keyword: 네이버 검색 키워드
+            mark_keyword: 검색 결과에서 <mark> 텍스트로 매칭할 키워드
+            wait_min: 최소 대기 시간 (초)
+            wait_max: 최대 대기 시간 (초)
+        """
+        try:
+            logger.info(f"[MARK] 마크 매칭 모드: mark_keyword='{mark_keyword}'")
+
+            # 1) 네이버 메인 접속
+            logger.info(f"[NAVER] 네이버 메인 접속 중...")
+            self.driver.get("https://www.naver.com")
+            time.sleep(random.uniform(1.5, 3.0))
+
+            # 2) 검색창에 키워드 입력
+            logger.info(f"[SEARCH] 검색어 입력: '{keyword}'")
+            search_box = None
+            search_selectors = [
+                "#query",
+                "input[name='query']",
+                ".search_input input",
+            ]
+            for sel in search_selectors:
+                try:
+                    search_box = self.driver.find_element(By.CSS_SELECTOR, sel)
+                    if search_box.is_displayed():
+                        break
+                    search_box = None
+                except:
+                    continue
+
+            if not search_box:
+                logger.error("[ERROR] 네이버 검색창을 찾을 수 없습니다.")
+                return False
+
+            search_box.clear()
+            time.sleep(random.uniform(0.3, 0.6))
+
+            for char in keyword:
+                search_box.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
+
+            time.sleep(random.uniform(0.5, 1.0))
+            search_box.send_keys(Keys.RETURN)
+            time.sleep(random.uniform(2.0, 3.5))
+
+            logger.info(f"[SEARCH] 검색 결과 페이지 로드 완료")
+
+            # 3) 검색 결과에서 mark 텍스트 매칭 링크 찾기
+            logger.info(f"[FIND] mark 키워드 '{mark_keyword}' 탐색 중...")
+            mark_kw_normalized = mark_keyword.replace(" ", "").lower()
+
+            for scroll in range(7):
+                links = self.driver.find_elements(By.TAG_NAME, "a")
+                for link in links:
+                    try:
+                        if not link.is_displayed():
+                            continue
+                        size = link.size
+                        if size.get("width", 0) < 20 or size.get("height", 0) < 10:
+                            continue
+
+                        spans = link.find_elements(By.TAG_NAME, "span")
+                        for span in spans:
+                            marks = span.find_elements(By.TAG_NAME, "mark")
+                            if not marks:
+                                continue
+
+                            span_text = span.text.replace(" ", "").lower()
+                            if mark_kw_normalized in span_text:
+                                href = link.get_attribute("href") or ""
+                                self.driver.execute_script(
+                                    "arguments[0].scrollIntoView({block: 'center'});", link
+                                )
+                                time.sleep(random.uniform(0.5, 1.0))
+
+                                display_text = span.text.strip()[:50]
+                                logger.info(f"[CLICK] mark 매칭 발견: '{display_text}' ({href[:80]})")
+                                link.click()
+                                time.sleep(2)
+
+                                if len(self.driver.window_handles) > 1:
+                                    self.driver.switch_to.window(self.driver.window_handles[-1])
+
+                                wait_time = random.uniform(wait_min, wait_max)
+                                logger.info(f"[WAIT] {wait_time:.1f}초 체류 중...")
+                                time.sleep(wait_time)
+                                logger.info(f"[OK] 검색→mark클릭 완료 (URL: {self.driver.current_url[:80]})")
+                                return True
+                    except:
+                        continue
+
+                self.driver.execute_script(
+                    "window.scrollTo({top: window.pageYOffset + 600, behavior: 'smooth'});"
+                )
+                time.sleep(random.uniform(1.0, 2.0))
+
+            logger.warning(f"[FAIL] 검색 결과에서 mark 매칭 링크를 찾지 못했습니다. (mark='{mark_keyword}')")
+            return False
+
+        except Exception as e:
+            logger.error(f"[ERROR] 검색→mark클릭 실패: {e}")
+            return False
+
     def search_and_visit(self, keyword, target_url, wait_min=3, wait_max=10):
         """
         네이버에서 검색 후 매칭 링크 클릭
@@ -697,7 +805,10 @@ class SimpleVisitor:
         logger.info(f"{'='*70}")
         logger.info(f"  - 검색 작업: {len(searches)}개")
         for idx, s in enumerate(searches, 1):
-            logger.info(f"    {idx}. 키워드: '{s['keyword']}' → {s['url']}")
+            if 'mark' in s:
+                logger.info(f"    {idx}. [MARK모드] 키워드: '{s['keyword']}' → mark: '{s['mark']}'")
+            else:
+                logger.info(f"    {idx}. [URL모드] 키워드: '{s['keyword']}' → {s['url']}")
         logger.info(f"  - 반복 횟수: {repeat_count}")
         logger.info(f"  - 대기 시간: {wait_min}~{wait_max}초")
         logger.info(f"  - 게스트 모드: {'사용' if self.guest_mode else '미사용'}")
@@ -732,12 +843,17 @@ class SimpleVisitor:
 
                 for s_idx, search in enumerate(searches, 1):
                     keyword = search['keyword']
-                    target_url = search['url']
 
-                    if len(searches) > 1:
-                        logger.info(f"\n[TASK {s_idx}/{len(searches)}] '{keyword}' → {target_url}")
-
-                    success = self.search_and_visit(keyword, target_url, wait_min, wait_max)
+                    if 'mark' in search:
+                        mark_keyword = search['mark']
+                        if len(searches) > 1:
+                            logger.info(f"\n[TASK {s_idx}/{len(searches)}] [MARK] '{keyword}' → mark: '{mark_keyword}'")
+                        success = self.search_and_click_by_mark(keyword, mark_keyword, wait_min, wait_max)
+                    else:
+                        target_url = search['url']
+                        if len(searches) > 1:
+                            logger.info(f"\n[TASK {s_idx}/{len(searches)}] '{keyword}' → {target_url}")
+                        success = self.search_and_visit(keyword, target_url, wait_min, wait_max)
 
                     if success:
                         cycle_success += 1

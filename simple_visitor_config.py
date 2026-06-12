@@ -55,7 +55,10 @@ def main():
     logger.info(f"{'='*70}")
     logger.info(f"  - 검색 작업: {len(searches)}개")
     for idx, s in enumerate(searches, 1):
-        logger.info(f"    {idx}. '{s['keyword']}' → {s['url']}")
+        if 'mark' in s:
+            logger.info(f"    {idx}. [MARK모드] '{s['keyword']}' → mark: '{s['mark']}'")
+        else:
+            logger.info(f"    {idx}. [URL모드] '{s['keyword']}' → {s['url']}")
     logger.info(f"  - 반복 횟수: {config.get('repeat_count', 10)}")
     logger.info(f"  - 대기 시간: {config.get('wait_min', 3)}~{config.get('wait_max', 10)}초")
     logger.info(f"  - 휴식 시간: {config.get('rest_minutes', 0)}분")
