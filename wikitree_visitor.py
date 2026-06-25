@@ -133,16 +133,23 @@ class WikitreeVisitor:
         return list(links)
 
     def _smooth_scroll_to_bottom(self, pause_min=0.8, pause_max=2.5,
-                                  scroll_step_min=200, scroll_step_max=500):
-        """자연스럽게 페이지 끝까지 스크롤"""
+                                  scroll_step_min=200, scroll_step_max=500,
+                                  max_scroll_time=60):
+        """자연스럽게 페이지 끝까지 스크롤 (최대 시간 제한)"""
         try:
             total_height = self.driver.execute_script("return document.body.scrollHeight")
             current = self.driver.execute_script("return window.pageYOffset")
             viewport = self.driver.execute_script("return window.innerHeight")
+            start_time = time.time()
 
-            logger.info(f"[SCROLL] 페이지 높이: {total_height}px, 시작 위치: {current}px")
+            logger.info(f"[SCROLL] 페이지 높이: {total_height}px, 최대 {max_scroll_time}초")
 
             while current + viewport < total_height:
+                elapsed = time.time() - start_time
+                if elapsed >= max_scroll_time:
+                    logger.info(f"[SCROLL] 최대 시간 도달 ({max_scroll_time}초), 스크롤 중단")
+                    break
+
                 step = random.randint(scroll_step_min, scroll_step_max)
                 target = min(current + step, total_height - viewport)
 
@@ -153,7 +160,6 @@ class WikitreeVisitor:
                 pause = random.uniform(pause_min, pause_max)
                 time.sleep(pause)
 
-                # 중간에 잠깐 멈춤 (읽는 듯한 효과)
                 if random.random() < 0.25:
                     extra = random.uniform(1.0, 3.0)
                     time.sleep(extra)
@@ -163,11 +169,15 @@ class WikitreeVisitor:
                     "return document.body.scrollHeight"
                 )
 
-            logger.info("[SCROLL] 페이지 끝까지 스크롤 완료")
+            else:
+                logger.info("[SCROLL] 페이지 끝까지 스크롤 완료")
+
+            elapsed = time.time() - start_time
+            logger.info(f"[SCROLL] 스크롤 소요 시간: {elapsed:.1f}초")
         except Exception as e:
             logger.warning(f"[WARNING] 스크롤 중 오류: {e}")
 
-    def visit_random_article(self, dwell_min=10, dwell_max=30):
+    def visit_random_article(self, dwell_min=10, dwell_max=30, max_scroll_time=60):
         """메인 접속 → 랜덤 기사 클릭 → 스크롤 → 체류"""
         try:
             # 1) 위키트리 메인
@@ -191,8 +201,8 @@ class WikitreeVisitor:
             page_title = self.driver.title
             logger.info(f"[ARTICLE] 제목: {page_title}")
 
-            # 4) 자연스러운 스크롤
-            self._smooth_scroll_to_bottom()
+            # 4) 자연스러운 스크롤 (최대 시간 제한)
+            self._smooth_scroll_to_bottom(max_scroll_time=max_scroll_time)
 
             # 5) 하단 체류
             dwell = random.uniform(dwell_min, dwell_max)
@@ -222,7 +232,8 @@ class WikitreeVisitor:
                 self.driver = None
         gc.collect()
 
-    def run(self, repeat_count=10, dwell_min=10, dwell_max=30, rest_minutes=0):
+    def run(self, repeat_count=10, dwell_min=10, dwell_max=30,
+            max_scroll_time=60, rest_minutes=0):
         """
         반복 실행
 
@@ -230,6 +241,7 @@ class WikitreeVisitor:
             repeat_count: 반복 횟수
             dwell_min: 기사 페이지 최소 체류 시간 (초)
             dwell_max: 기사 페이지 최대 체류 시간 (초)
+            max_scroll_time: 스크롤 최대 시간 (초)
             rest_minutes: 사이클 간 휴식 (분)
         """
         logger.info(f"\n{'='*70}")
@@ -237,6 +249,7 @@ class WikitreeVisitor:
         logger.info(f"{'='*70}")
         logger.info(f"  - 반복 횟수: {repeat_count}")
         logger.info(f"  - 체류 시간: {dwell_min}~{dwell_max}초")
+        logger.info(f"  - 스크롤 최대: {max_scroll_time}초")
         logger.info(f"  - 휴식 시간: {rest_minutes}분")
         logger.info(f"  - 게스트 모드: {'사용' if self.guest_mode else '미사용'}")
         logger.info(f"  - NordVPN: {'사용' if self.use_nordvpn else '사용 안 함'}")
@@ -262,7 +275,7 @@ class WikitreeVisitor:
 
                 self.create_driver(proxy_server if not self.use_cli else None)
 
-                if self.visit_random_article(dwell_min, dwell_max):
+                if self.visit_random_article(dwell_min, dwell_max, max_scroll_time):
                     success_count += 1
                 else:
                     fail_count += 1

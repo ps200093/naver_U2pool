@@ -73,6 +73,7 @@ def main():
             repeat_count=config.get('repeat_count', 10),
             dwell_min=config.get('dwell_min', 10),
             dwell_max=config.get('dwell_max', 30),
+            max_scroll_time=config.get('max_scroll_time', 60),
             rest_minutes=config.get('rest_minutes', 0),
         )
     except KeyboardInterrupt:
